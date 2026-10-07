@@ -48,6 +48,31 @@ open "Claude Widget.app"
 
 Aucune autre dépendance : ni Node, ni Electron, ni Xcode complet.
 
+## Mettre à jour
+
+Sur une machine où le dépôt est déjà cloné — **c'est la méthode à préférer** :
+
+```
+cd claude-widget
+git pull
+./build.sh
+```
+
+Puis quitte le widget (la croix `✕` de l'en-tête) et rouvre `Claude Widget.app`.
+Compiler sur place évite toute mise en quarantaine par macOS.
+
+### Sans passer par Git
+
+Chaque version est publiée dans l'onglet **Releases** du dépôt, avec l'app déjà
+compilée. Comme elle n'est pas signée par un développeur identifié auprès
+d'Apple, macOS la bloquera au premier lancement après téléchargement :
+
+1. clic droit sur `Claude Widget.app` → **Ouvrir**, puis **Ouvrir** à nouveau ;
+2. si le message persiste, va dans *Réglages Système → Confidentialité et
+   sécurité*, et clique **Ouvrir quand même** en bas de la page.
+
+C'est à faire une seule fois par machine.
+
 ## Utilisation
 
 - **Afficher / rouvrir** : double-clic sur `Claude Widget.app`. Pour l'avoir sous
