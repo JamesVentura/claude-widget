@@ -1,0 +1,8 @@
+# L'application est un produit de compilation : on la reconstruit avec ./build.sh
+Claude Widget.app/
+
+# macOS
+.DS_Store
+
+# Mascotte personnalisée éventuelle (voir README)
+mascot.png
