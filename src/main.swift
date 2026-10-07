@@ -148,8 +148,16 @@ enum Scan {
 
     // ── Assemblage ───────────────────────────────────────────────
 
-    static func run() -> [Row] {
+    struct Result {
+        let rows: [Row]
+        let hiddenCount: Int
+    }
+
+    /// `hidden` associe un sessionId à la date d'activité au moment du masquage.
+    /// Si la discussion a bougé depuis, elle réapparaît d'elle-même.
+    static func run(hidden: [String: Date] = [:]) -> Result {
         let idx = transcripts()
+        var hiddenCount = 0
         let cutoff = Date().addingTimeInterval(-maxAgeDays * 86_400)
         let prefilter = Date().addingTimeInterval(-prefilterDays * 86_400)
         var rows: [Row] = []
@@ -162,6 +170,11 @@ enum Scan {
             guard let p = progress(file: file, mtime: mtime) else { continue }
             // On filtre sur la date réelle du dernier message, pas sur le fichier.
             guard p.date > cutoff else { continue }
+
+            if let since = hidden[meta.sessionId], p.date <= since {
+                hiddenCount += 1      // masquée, et rien de neuf depuis
+                continue
+            }
 
             var title = meta.title.trimmingCharacters(in: .whitespaces)
             if title.isEmpty { title = p.prompt.isEmpty ? "Sans titre" : String(p.prompt.prefix(48)) }
@@ -182,7 +195,7 @@ enum Scan {
             if $0.status != $1.status { return $0.status < $1.status }
             return $0.date > $1.date
         }
-        return Array(rows.prefix(maxRows))
+        return Result(rows: Array(rows.prefix(maxRows)), hiddenCount: hiddenCount)
     }
 
     // Lit uniquement la fin du fichier (certains transcripts font 40 Mo)
@@ -334,10 +347,34 @@ final class Store: ObservableObject {
     @Published var collapsed = false { didSet { resize?() } }
     @Published var contentHeight: CGFloat = 0 { didSet { resize?() } }
     @Published var quote: String = Quotes.today()
+    @Published private(set) var hiddenCount = 0
+
+    /// sessionId → date d'activité au moment où on l'a masquée.
+    private var hidden: [String: Date] = [:]
+    private let hiddenKey = "hiddenSessions"
 
     var resize: (() -> Void)?
     private var timer: Timer?
     private let queue = DispatchQueue(label: "scan", qos: .utility)
+
+    init() {
+        let raw = UserDefaults.standard.dictionary(forKey: hiddenKey) as? [String: Double] ?? [:]
+        hidden = raw.mapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    /// Masque une discussion. Elle revient toute seule si Claude y réécrit.
+    func hide(_ row: Row) {
+        hidden[row.id] = row.date
+        UserDefaults.standard.set(hidden.mapValues { $0.timeIntervalSince1970 },
+                                  forKey: hiddenKey)
+        refresh()
+    }
+
+    func restoreAll() {
+        hidden.removeAll()
+        UserDefaults.standard.removeObject(forKey: hiddenKey)
+        refresh()
+    }
 
     func start() {
         refresh()
@@ -347,11 +384,13 @@ final class Store: ObservableObject {
     }
 
     func refresh() {
+        let snapshot = hidden
         queue.async {
-            let r = Scan.run()
+            let r = Scan.run(hidden: snapshot)
             let q = Quotes.today()
             DispatchQueue.main.async {
-                if r != self.rows { self.rows = r }
+                if r.rows != self.rows { self.rows = r.rows }
+                if r.hiddenCount != self.hiddenCount { self.hiddenCount = r.hiddenCount }
                 if q != self.quote { self.quote = q }
             }
         }
@@ -497,9 +536,34 @@ struct OpenButton: View {
     }
 }
 
+/// Croix discrète : retire la discussion du widget. Placée à GAUCHE de la
+/// flèche orange, qui reste ainsi exactement au même endroit.
+struct HideButton: View {
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.primary.opacity(hover ? 0.95 : 0.5))
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(hover ? 0.16 : 0.07))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .help("Masquer cette discussion. Elle revient si Claude y réécrit.")
+    }
+}
+
 /// Une ligne : titre + flèche. Le détail n'apparaît qu'au survol.
 struct RowView: View {
     let row: Row
+    let onHide: () -> Void
     @State private var hover = false
 
     var body: some View {
@@ -545,6 +609,7 @@ struct RowView: View {
             }
             .padding(.top, 4.5)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if hover { HideButton(action: onHide) }
             OpenButton(link: row.link)
         }
         .padding(.leading, 9)
@@ -562,6 +627,7 @@ struct RowView: View {
 
 struct Panel: View {
     @ObservedObject var store: Store
+    @State private var overPanel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -597,27 +663,46 @@ struct Panel: View {
 
             if !store.collapsed {
                 Divider().opacity(0.2)
-                if store.rows.isEmpty {
-                    Text("Aucune discussion récente.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.primary.opacity(0.45))
-                        .padding(.vertical, 22)
-                        .frame(maxWidth: .infinity)
-                        .measureHeight()
-                } else {
-                    ScrollView {
-                        VStack(spacing: 4) {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        if store.rows.isEmpty {
+                            Text("Aucune discussion récente.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.primary.opacity(0.45))
+                                .padding(.vertical, 18)
+                                .frame(maxWidth: .infinity)
+                        } else {
                             ForEach(store.rows) { row in
-                                RowView(row: row)
+                                RowView(row: row) { store.hide(row) }
                             }
                         }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 7)
-                        .measureHeight()
+
+                        // Rattrapage, visible seulement quand la souris est sur
+                        // le widget : ajouté en bas, il ne décale aucune ligne.
+                        if overPanel && store.hiddenCount > 0 {
+                            HStack(spacing: 5) {
+                                Spacer()
+                                Text(store.hiddenCount == 1
+                                     ? "1 discussion masquée"
+                                     : "\(store.hiddenCount) discussions masquées")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.primary.opacity(0.4))
+                                Button("Tout réafficher") { store.restoreAll() }
+                                    .buttonStyle(.plain)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(Color(red: 0.94, green: 0.45, blue: 0.16))
+                                Spacer()
+                            }
+                            .padding(.top, 3)
+                        }
                     }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 7)
+                    .measureHeight()
                 }
             }
         }
+        .onHover { overPanel = $0 }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onPreferenceChange(HeightKey.self) { h in
             if abs(h - store.contentHeight) > 0.5 { store.contentHeight = h }

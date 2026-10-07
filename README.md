@@ -22,6 +22,9 @@ orange qui ouvre la discussion dans Claude. Le détail n'apparaît qu'au survol.
 | 🟠 orange | **à toi** | Claude a répondu et attend ta réponse (moins de 48 h) |
 | ⚪️ gris | **en pause** | Discussion inactive |
 
+Une discussion close reste en orange tant que Claude attend formellement une
+réponse, même si le sujet est réglé : c'est à ça que sert la croix de masquage.
+
 Les discussions « en cours » sont en haut, puis celles qui t'attendent, puis le
 reste. Rafraîchissement toutes les 4 secondes.
 
@@ -55,6 +58,11 @@ Aucune autre dépendance : ni Node, ni Electron, ni Xcode complet.
 - **Voir le détail** : survole une ligne — dossier, état, date, dernier message de
   Claude et ta dernière demande. La fenêtre s'agrandit le temps du survol.
 - **Ouvrir une discussion** : le bouton orange `→`.
+- **Masquer une discussion** : la croix `✕`, à gauche de la flèche, au survol.
+  Pour les sujets terminés que Claude affiche encore en « à toi » parce qu'il
+  attend techniquement une réponse. **Elle réapparaît d'elle-même si Claude y
+  réécrit** — on ne perd jamais un projet qui redémarre. Pour annuler, survole le
+  widget : « *N discussions masquées — Tout réafficher* » s'affiche en bas.
 - **Lancement au démarrage** : double-clic sur `Démarrage automatique.command`
   (une seule fois), ou *Réglages Système → Général → Ouverture*.
 
@@ -128,3 +136,8 @@ build.sh              assemble Claude Widget.app
 ```
 
 `Claude Widget.app` est un produit de compilation, il n'est pas versionné.
+
+Les discussions masquées sont mémorisées dans les préférences macOS de l'app
+(domaine `com.elise.claude-widget`, clé `hiddenSessions`), sous la forme
+sessionId → date d'activité au moment du masquage. C'est cette date qui permet
+de les faire réapparaître quand il y a du nouveau.
